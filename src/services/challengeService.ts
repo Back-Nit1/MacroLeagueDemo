@@ -51,6 +51,23 @@ export interface ChallengeDetail extends ChallengeSummary {
   goals: ChallengeGoal[];
 }
 
+/**
+ * A single participant's finalized placement in a completed challenge, as stored
+ * by finalize_challenge() (migration 0013). `isWinner` marks the top-ranked
+ * participant(s) with a positive score. This is the durable snapshot, not the
+ * live standings.
+ */
+export interface ChallengeResult {
+  userId: string;
+  username: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+  teamName: string | null;
+  rank: number;
+  score: number;
+  isWinner: boolean;
+}
+
 type ChallengeRow = {
   id: string;
   created_by: string;
@@ -194,6 +211,44 @@ export async function getChallengeDetail(challengeId: string): Promise<Challenge
       pointsValue: g.points_value,
     })),
   };
+}
+
+/**
+ * Finalizes an ended challenge and returns its durable results (ranked, with
+ * winner flags). Backed by the finalize_challenge() RPC (migration 0013), which
+ * derives the ranking from the trusted ledger, stores challenge_results, and
+ * awards each winner one challenge_win event + a profiles.challenges_won bump.
+ * The RPC is idempotent and locks the challenge row, so it is safe to call every
+ * time a completed challenge is opened; the backend never double-awards. Only
+ * challenges that have already ended can be finalized (the RPC raises otherwise).
+ */
+export async function finalizeChallenge(challengeId: string): Promise<ChallengeResult[]> {
+  const { data, error } = await supabase.rpc('finalize_challenge', {
+    p_challenge_id: challengeId,
+  });
+  if (error) throw error;
+
+  type ResultRow = {
+    user_id: string;
+    username: string;
+    display_name: string | null;
+    avatar_url: string | null;
+    team_name: string | null;
+    rank: number;
+    score: number | string;
+    is_winner: boolean;
+  };
+
+  return ((data ?? []) as ResultRow[]).map((r) => ({
+    userId: r.user_id,
+    username: r.username,
+    displayName: r.display_name,
+    avatarUrl: r.avatar_url,
+    teamName: r.team_name,
+    rank: r.rank,
+    score: Number(r.score),
+    isWinner: r.is_winner,
+  }));
 }
 
 export interface CreateChallengeInput {

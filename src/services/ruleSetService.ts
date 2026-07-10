@@ -88,6 +88,23 @@ export interface EarnRule {
 }
 
 /**
+ * Client-side fallback for the "How to Earn" list. Mirrors the seeded system
+ * default economy in migration 0006 (points.per_meal 10, meal_count_goal 15,
+ * protein_goal 25, macro_accuracy 30, streak_milestone 100 at the first 7-day
+ * milestone). Used when getEarnRules() cannot resolve real rules (e.g. the rule
+ * set is missing on first login, or the network read fails) so the screen still
+ * shows the known defaults instead of an empty "unavailable" state. If the seed
+ * amounts in 0006 change, update these to match.
+ */
+export const DEFAULT_EARN_RULES: EarnRule[] = [
+  { action: 'Log a meal', points: 10 },
+  { action: 'Log 3 meals in a day', points: 15 },
+  { action: 'Hit your daily protein goal', points: 25 },
+  { action: 'Nail your macro accuracy', points: 30 },
+  { action: 'Reach a 7-day streak', points: 100 },
+];
+
+/**
  * Builds the "how to earn" list from the ACTIVE rule set's real award amounts +
  * enabled modules, so the Rewards screen reflects what the award engine actually
  * grants (replaces the former hardcoded EARN_RULES). Disabled modules are omitted.

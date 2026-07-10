@@ -9,7 +9,7 @@ import {
   redeemReward,
   RewardCatalogItem,
 } from '../../services/rewardService';
-import { getEarnRules, EarnRule } from '../../services/ruleSetService';
+import { getEarnRules, EarnRule, DEFAULT_EARN_RULES } from '../../services/ruleSetService';
 import { analytics } from '../../lib/analytics';
 import {
   Screen,
@@ -51,7 +51,9 @@ export default function RewardsScreen({ navigation }: any) {
   const refreshStats = useUserStore((s) => s.refreshStats);
 
   const [rewards, setRewards] = useState<RewardCatalogItem[]>([]);
-  const [earnRules, setEarnRules] = useState<EarnRule[]>([]);
+  // Seed with the known defaults so "How to Earn" is never empty, even if the
+  // backend rule read fails or the balance/catalog fetch below throws first.
+  const [earnRules, setEarnRules] = useState<EarnRule[]>(DEFAULT_EARN_RULES);
   const [redeemed, setRedeemed] = useState<Set<string>>(new Set());
   const [selectedReward, setSelectedReward] = useState<RewardCatalogItem | null>(null);
   const [passReward, setPassReward] = useState<RewardCatalogItem | null>(null);
@@ -71,15 +73,20 @@ export default function RewardsScreen({ navigation }: any) {
       const userId = user?.id;
       (async () => {
         try {
+          // Resolve earn rules resiliently: a missing user or a failed rule read
+          // falls back to the known defaults rather than an empty section.
+          const rulesPromise: Promise<EarnRule[]> = userId
+            ? getEarnRules(userId).catch(() => DEFAULT_EARN_RULES)
+            : Promise.resolve(DEFAULT_EARN_RULES);
           const [catalog, redeemedIds, rules] = await Promise.all([
             listRewards(),
             getRedeemedRewardIds(),
-            userId ? getEarnRules(userId) : Promise.resolve([] as EarnRule[]),
+            rulesPromise,
           ]);
           if (active) {
             setRewards(catalog);
             setRedeemed(redeemedIds);
-            setEarnRules(rules);
+            setEarnRules(rules.length > 0 ? rules : DEFAULT_EARN_RULES);
             analytics.rewardsViewed({
               balance: user?.points ?? 0,
               rewardCount: catalog.length,
@@ -250,23 +257,17 @@ export default function RewardsScreen({ navigation }: any) {
       </Pressable>
       {earnExpanded && (
         <Card padded={false} style={{ marginTop: Spacing.sm }}>
-          {earnRules.length === 0 ? (
-            <Text variant="label" color={colors.textSecondary} style={{ padding: Spacing.base }}>
-              Scoring rules unavailable right now.
-            </Text>
-          ) : (
-            earnRules.map((rule, i) => (
-              <View key={i}>
-                {i > 0 && <Divider inset={Spacing.base} />}
-                <View style={styles.earnRow}>
-                  <Text variant="subhead" color={colors.ink} style={{ flex: 1 }}>
-                    {rule.action}
-                  </Text>
-                  <Text style={[Type.numInline, { color: colors.success }]}>+{rule.points} LP</Text>
-                </View>
+          {(earnRules.length > 0 ? earnRules : DEFAULT_EARN_RULES).map((rule, i) => (
+            <View key={i}>
+              {i > 0 && <Divider inset={Spacing.base} />}
+              <View style={styles.earnRow}>
+                <Text variant="subhead" color={colors.ink} style={{ flex: 1 }}>
+                  {rule.action}
+                </Text>
+                <Text style={[Type.numInline, { color: colors.success }]}>+{rule.points} LP</Text>
               </View>
-            ))
-          )}
+            </View>
+          ))}
         </Card>
       )}
 

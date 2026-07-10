@@ -46,6 +46,7 @@ yarn-error.*
 
 # Gradle build cache for the android-auth subproject (machine-local binaries)
 android-auth/.gradle/
+android-auth/build/
 
 # design-sync (regenerated build/scratch state — durable inputs in .design-sync/ ARE committed)
 .ds-sync/

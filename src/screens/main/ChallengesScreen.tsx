@@ -23,6 +23,7 @@ import { AppIconName } from '../../components/ui/AppIcon';
 import {
   listChallenges,
   getChallengeDetail,
+  finalizeChallenge,
   createChallenge,
   joinChallenge,
   leaveChallenge,
@@ -32,6 +33,7 @@ import {
   getChallengeInvites,
   ChallengeSummary,
   ChallengeDetail as ChallengeDetailType,
+  ChallengeResult,
   ChallengeInvite,
   ChallengeType,
   ChallengeGoalType,
@@ -586,7 +588,9 @@ const RANK_ICON: Record<number, AppIconName> = { 1: 'crown', 2: 'medal', 3: 'med
 function ChallengeDetail({ challengeId, onBack }: { challengeId: string; onBack: () => void }) {
   const { colors } = useTheme();
   const userId = useUserStore((s) => s.user?.id);
+  const refreshStats = useUserStore((s) => s.refreshStats);
   const [detail, setDetail] = useState<ChallengeDetailType | null>(null);
+  const [results, setResults] = useState<ChallengeResult[] | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
@@ -599,13 +603,28 @@ function ChallengeDetail({ challengeId, onBack }: { challengeId: string; onBack:
     setIsLoading(true);
     setError(null);
     try {
-      setDetail(await getChallengeDetail(challengeId));
+      const loaded = await getChallengeDetail(challengeId);
+      setDetail(loaded);
+      // A completed challenge is finalized on open: this derives + stores the
+      // winner and awards challenges_won on the backend (idempotent, so calling
+      // it every open is safe). We then refresh our own stats in case we won.
+      if (loaded.status === 'completed') {
+        try {
+          setResults(await finalizeChallenge(challengeId));
+          void refreshStats();
+        } catch {
+          // Best-effort: standings still render even if finalization fails.
+          setResults(null);
+        }
+      } else {
+        setResults(null);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not load this challenge.');
     } finally {
       setIsLoading(false);
     }
-  }, [challengeId]);
+  }, [challengeId, refreshStats]);
 
   useFocusEffect(
     useCallback(() => {
@@ -680,6 +699,16 @@ function ChallengeDetail({ challengeId, onBack }: { challengeId: string; onBack:
   const teamEntries = Array.from(teams.entries());
   const headToHead = detail.type === 'team' && teamEntries.length >= 2;
 
+  // Winner(s) of a finalized challenge. May be empty (nobody scored) or hold
+  // multiple names on a genuine tie.
+  const winners = (results ?? []).filter((r) => r.isWinner);
+  const iWon = winners.some((w) => w.userId === userId);
+  const winnerLabel = iWon
+    ? 'You won!'
+    : winners.length === 1
+      ? `${publicLeaderboardName(winners[0])} won`
+      : `${winners.map((w) => publicLeaderboardName(w)).join(' & ')} tied for the win`;
+
   return (
     <>
       <Screen scroll bottomSpace={96}>
@@ -715,6 +744,31 @@ function ChallengeDetail({ challengeId, onBack }: { challengeId: string; onBack:
           {detail.type === 'solo' ? 'Solo challenge' : 'Team challenge'} · {detail.status} · ends{' '}
           {new Date(`${detail.endDate}T00:00:00`).toLocaleDateString()}
         </Text>
+
+        {/* Winner banner — only for finalized challenges that produced a winner */}
+        {winners.length > 0 && (
+          <Card
+            style={{
+              flexDirection: 'row',
+              alignItems: 'center',
+              gap: 14,
+              marginBottom: 20,
+              backgroundColor: colors.gold + '14',
+              borderWidth: 1,
+              borderColor: colors.gold + '44',
+            }}
+          >
+            <RotatingTrophy size={28} color={colors.gold} />
+            <View style={{ flex: 1 }}>
+              <Text color={colors.gold} style={{ fontFamily: 'BarlowCondensed_700Bold', fontSize: 22 }}>
+                {winnerLabel}
+              </Text>
+              <Text variant="labelSm" color={colors.textSecondary} style={{ marginTop: 2 }}>
+                Final score {winners[0].score} pts
+              </Text>
+            </View>
+          </Card>
+        )}
 
         {/* Standings */}
         <SectionLabel>Standings</SectionLabel>
